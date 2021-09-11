@@ -85,6 +85,8 @@ freemem(void)
 {
   struct run *pa = kmem.freelist;
   uint64 n = 0;
+
+  //当空页表耗尽，pa == NULL
   for (; pa; n++)
   {
     pa = pa->next;
