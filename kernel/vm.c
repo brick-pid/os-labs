@@ -455,43 +455,7 @@ int copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   }
 }
 
-//print a page table
-// void vmprint(pagetable_t L2)
-// {
-//   printf("page table %p\n", L2);
-
-//   // there are 2^9 = 512 PTEs in a page table.
-//   for (int i = 0; i < 512; i++)
-//   {
-//     pte_t pte = L2[i];
-
-//     // pte 有效; pte 可读或者可写或者可执行
-//     if ((pte & PTE_V) && (pte & (PTE_R | PTE_W | PTE_X)) == 0)
-//     {
-//       // this PTE points to a lower-level page table.
-//       pagetable_t L1 = (pagetable_t)PTE2PA(L2[i]);
-//       printf("..%d: pte %p pa %p\n", i, pte, L1);
-//       for (int j = 0; j < 512; j++)
-//       {
-//         pte = L1[j];
-//         if ((pte & PTE_V) && (pte & (PTE_R | PTE_W | PTE_X)) == 0)
-//         {
-//           pagetable_t L0 = (pagetable_t)PTE2PA(L1[i]);
-//           printf(".. ..%d: pte %p pa %p\n", j, pte, L0);
-//           for (int k = 0; k < 512; k++)
-//           {
-//             pte = L0[k];
-//             if (pte & PTE_V)
-//             {
-//               printf(".. .. ..%d: pte %p pa %p\n", k, pte, (pagetable_t)PTE2PA(pte));
-//             }
-//           }
-//         }
-//       }
-//     }
-//   }
-// }
-
+//p1 print a page table
 void vmprint_helper(pagetable_t pagetable, int level)
 {
   char *dots;
@@ -532,4 +496,65 @@ void vmprint(pagetable_t pagetable)
 {
   printf("page table %p\n", pagetable);
   vmprint_helper(pagetable, 2);
+}
+
+//p2 kernel page per process
+void free_kpagetable(pagetable_t pagetable_l2)
+{
+  for (int i = 0; i < 512; i++)
+  {
+    pte_t pte_i = pagetable_l2[i];
+    if (pte_i & PTE_V)
+    {
+      pagetable_t pagetable_l1 = (pagetable_t)PTE2PA(pte_i);
+      for (int j = 0; j < 512; j++)
+      {
+        pte_t pte_j = pagetable_l1[j];
+        if (pte_j & PTE_V)
+          kfree((pagetable_t)PTE2PA(pte_j));
+      }
+    }
+  }
+}
+
+//初始化进程内核页表
+pagetable_t kpagetableinit()
+{
+  pagetable_t pagetable = kalloc();
+  if (pagetable == 0)
+  {
+    panic("kalloc fail");
+  }
+
+  memset(pagetable, 0, PGSIZE);
+
+  // uart registers
+  uvmmap(pagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+
+  // virtio mmio disk interface
+  uvmmap(pagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // CLINT
+  uvmmap(pagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+
+  // PLIC
+  uvmmap(pagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  // map kernel text executable and read-only.
+  uvmmap(pagetable, KERNBASE, KERNBASE, (uint64)etext - KERNBASE, PTE_R | PTE_X);
+
+  // map kernel data and the physical RAM we'll make use of.
+  uvmmap(pagetable, (uint64)etext, (uint64)etext, PHYSTOP - (uint64)etext, PTE_R | PTE_W);
+
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  uvmmap(pagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  return pagetable;
+}
+
+void uvmmap(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if (mappages(pagetable, va, sz, pa, perm) != 0)
+    panic("uvmmap fail");
 }

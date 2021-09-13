@@ -182,6 +182,10 @@ int copyinstr(pagetable_t, char *, uint64, uint64);
 //print a page table
 void vmprint(pagetable_t);
 void vmprint_helper(pagetable_t pagetable, int level);
+//kernel page table per process
+void free_kpagetable(pagetable_t pagetable_l2);
+pagetable_t kpagetableinit();
+void uvmmap(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm);
 
 // plic.c
 void plicinit(void);
