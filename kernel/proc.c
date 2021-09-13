@@ -34,8 +34,6 @@ void procinit(void)
     // Allocate a page for the process's kernel stack.
     // Map it high in memory, followed by an invalid
     // guard page.
-    uint64 va = KSTACK((int)(p - proc));
-    p->kstack = va;
   }
   kvminithart();
 }
@@ -126,12 +124,20 @@ found:
 
   //初始化kpagetable
   p->kpagetable = kpagetableinit();
+  if (p->kpagetable == 0)
+  {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
 
   // 分配kstack物理内存，建立映射
   uint64 pa = (uint64)kalloc();
   if (pa == 0)
     panic("kstack alloc");
-  mappages(p->kpagetable, p->kstack, pa, PGSIZE, PTE_R | PTE_W);
+  uint64 va = KSTACK((int)(p - proc));
+  p->kstack = va;
+  uvmmap(p->kpagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
 
   // Set up new context to start executing at forkret,
   // which returns to user space.
@@ -162,6 +168,14 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  //释放kstack
+  uvmunmap(p->kpagetable, p->kstack, 1, 1);
+  //释放pagetable
+  if (p->kpagetable)
+  {
+    free_kpagetable(p->kpagetable);
+  }
 }
 
 // Create a user page table for a given process,
@@ -220,7 +234,7 @@ uchar initcode[] = {
     0x00, 0x00, 0x00, 0x00};
 
 // Set up first user process.
-void user(void)
+void userinit(void)
 {
   struct proc *p;
 
@@ -288,6 +302,7 @@ int fork(void)
     release(&np->lock);
     return -1;
   }
+
   np->sz = p->sz;
 
   np->parent = p;
@@ -519,6 +534,8 @@ void scheduler(void)
 #if !defined(LAB_FS)
     if (found == 0)
     {
+      //没有进程运行时，使用内核自己的页表
+      kvminithart();
       intr_on();
       asm volatile("wfi");
     }

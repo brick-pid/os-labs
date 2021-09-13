@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -133,7 +135,7 @@ kvmpa(uint64 va)
   pte_t *pte;
   uint64 pa;
 
-  pte = walk(kernel_pagetable, va, 0);
+  pte = walk(myproc()->kpagetable, va, 0);
   if (pte == 0)
     panic("kvmpa");
   if ((*pte & PTE_V) == 0)
@@ -158,7 +160,11 @@ int mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
     if ((pte = walk(pagetable, a, 1)) == 0)
       return -1;
     if (*pte & PTE_V)
+    {
+      printf("pte: %p\n", *pte);
+      printf("va: %p    pa: %p\n", va, pa);
       panic("remap");
+    }
     *pte = PA2PTE(pa) | perm | PTE_V;
     if (a == last)
       break;
@@ -498,7 +504,7 @@ void vmprint(pagetable_t pagetable)
   vmprint_helper(pagetable, 2);
 }
 
-//p2 kernel page per process
+//释放进程内核页表
 void free_kpagetable(pagetable_t pagetable_l2)
 {
   for (int i = 0; i < 512; i++)
@@ -513,8 +519,10 @@ void free_kpagetable(pagetable_t pagetable_l2)
         if (pte_j & PTE_V)
           kfree((pagetable_t)PTE2PA(pte_j));
       }
+      kfree(pagetable_l1);
     }
   }
+  kfree(pagetable_l2);
 }
 
 //初始化进程内核页表
@@ -523,7 +531,7 @@ pagetable_t kpagetableinit()
   pagetable_t pagetable = kalloc();
   if (pagetable == 0)
   {
-    panic("kalloc fail");
+    return 0;
   }
 
   memset(pagetable, 0, PGSIZE);
