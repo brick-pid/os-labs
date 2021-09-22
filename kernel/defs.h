@@ -172,7 +172,8 @@ int copyout(pagetable_t, uint64, char *, uint64);
 int copyin(pagetable_t, char *, uint64, uint64);
 int copyinstr(pagetable_t, char *, uint64, uint64);
 void vmprint(pagetable_t pagetable);
-void vmprint_helper(pagetable_t pagetable, int level);
+uint64 lazy_uvmalloc(pagetable_t pagetable, uint64 va);
+uint64 islegal(uint64 va);
 
 // plic.c
 void plicinit(void);

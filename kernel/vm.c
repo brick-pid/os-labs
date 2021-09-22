@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -70,7 +72,10 @@ pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
   if (va >= MAXVA)
+  {
+    printf("va: %p, MAXVA: %p, sz: %p\n", va, MAXVA, myproc()->sz);
     panic("walk");
+  }
 
   for (int level = 2; level > 0; level--)
   {
@@ -98,15 +103,27 @@ walkaddr(pagetable_t pagetable, uint64 va)
 {
   pte_t *pte;
   uint64 pa;
+  struct proc *p = myproc();
 
   if (va >= MAXVA)
     return 0;
 
   pte = walk(pagetable, va, 0);
-  if (pte == 0)
-    return 0;
-  if ((*pte & PTE_V) == 0)
-    return 0;
+  if (pte == 0 || (*pte & PTE_V) == 0)
+  {
+    if (va >= p->sz || va < p->trapframe->sp)
+    {
+      return 0;
+    }
+    if (lazy_uvmalloc(pagetable, va) > 0)
+    {
+      pte = walk(pagetable, va, 0);
+    }
+    else
+    {
+      return 0;
+    }
+  }
   if ((*pte & PTE_U) == 0)
     return 0;
   pa = PTE2PA(*pte);
@@ -262,6 +279,38 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   return newsz;
 }
 
+//判断va是否合法
+uint64
+islegal(uint64 va)
+{
+  struct proc *p = myproc();
+
+  if (va >= p->sz || va >= MAXVA || va < p->trapframe->sp)
+    return 0;
+  return 1;
+}
+
+//va 必须合法(在调用前判断)
+//为PGROUNDDOWN(va)分配物理页
+//返回值为0表示出错，否则返回1
+uint64
+lazy_uvmalloc(pagetable_t pagetable, uint64 va)
+{
+  char *mem;
+  va = PGROUNDDOWN(va);
+  mem = kalloc();
+  if (kalloc() == 0)
+    return 0;
+
+  memset((void *)mem, 0, PGSIZE);
+  if (mappages(pagetable, va, PGSIZE, (uint64)mem, PTE_W | PTE_X | PTE_R | PTE_U) != 0)
+  {
+    kfree((void *)mem);
+    return 0;
+  }
+  return 1;
+}
+
 // Deallocate user pages to bring the process size from oldsz to
 // newsz.  oldsz and newsz need not be page-aligned, nor does newsz
 // need to be less than oldsz.  oldsz can be larger than the actual
@@ -330,9 +379,7 @@ int uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   {
     if ((pte = walk(old, i, 0)) == 0)
       continue;
-    //panic("uvmcopy: pte should exist");
     if ((*pte & PTE_V) == 0)
-      //panic("uvmcopy: page not present");
       continue;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);

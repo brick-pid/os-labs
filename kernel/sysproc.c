@@ -47,19 +47,25 @@ sys_sbrk(void)
   if (argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
+  struct proc *p = myproc();
 
   // 避免超出MAXVA
-  // int类型与long类型直接比较会出错！
-  if ((uint64)(addr + n) >= MAXVA)
-    return -1;
-
+  // 需要注意int是有符号、32位数据！与uint64无法直接比较
+  // if (n >= 0)
+  // {
+  //   uint64 newsz = myproc()->sz + n;
+  //   printf("addr: %p, newsz: %p, MAXVA: %p\n", addr, newsz, MAXVA);
+  //   if (newsz >= MAXVA)
+  //     return -1;
+  // }
+  //printf("sbrk old sz: %p\n", p->sz);
   if (n >= 0)
   {
-    myproc()->sz = addr + n;
+    myproc()->sz = p->sz + n;
   }
   else
   {
-    myproc()->sz = uvmdealloc(myproc()->pagetable, addr, addr + n);
+    p->sz = uvmdealloc(p->pagetable, p->sz, p->sz + n);
   }
 
   //sys_sbrk 返回变化之前的地址

@@ -68,27 +68,20 @@ void usertrap(void)
   {
     // ok
   }
-  else if (r_scause() == 15)
+  else if (r_scause() == 15 || r_scause() == 13)
   {
-    //处理store指令缺页
-    uint64 pa = (uint64)kalloc();
+    //缺页
     uint64 va = r_stval();
-    if (pa == 0 || va >= p->sz || p->sz > MAXVA)
+    if (islegal(va) == 0)
     {
-      // 没有内存可分配，杀掉子进程
-      // va超出范围
       p->killed = 1;
     }
     else
     {
-      memset((void *)pa, 0, PGSIZE);
-      va = PGROUNDDOWN(va);
-      if (mappages(p->pagetable, va, PGSIZE, pa, PTE_R | PTE_W | PTE_U) != 0)
+      if (lazy_uvmalloc(p->pagetable, va) == 0)
       {
-        kfree((void *)pa);
         p->killed = 1;
       }
-      //vmprint(p->pagetable);
     }
   }
   else
